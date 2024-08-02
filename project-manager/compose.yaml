@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8080
+      DB_USER: root
+      DB_PASSWORD: P@ssw0rd
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: project-manager
+      JWT_SECRET: 2xFavbztyHyRVFxuWrwtPtSQuwuQ1Y9i
+    ports:
+    - 8080:8080
+    depends_on:
+    - db
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: P@ssw0rd
+      MYSQL_DATABASE: project-manager
+    ports:
+    - 127.0.0.1:3306:3306
+    volumes:
+    - mysql_db_data:/var/lib/mysql
+
+volumes:
+  mysql_db_data:
