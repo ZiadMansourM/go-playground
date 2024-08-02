@@ -26,5 +26,5 @@ func main() {
 	store := NewStore(db)
 
 	api := NewAPIServer(Envs.ListenAddress+":"+Envs.Port, store)
-	log.Fatal(api.Run())
+	api.Run()
 }

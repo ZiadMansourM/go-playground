@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 type APIServer struct {
@@ -17,7 +23,17 @@ func NewAPIServer(addr string, store Store) *APIServer {
 	}
 }
 
-func (s *APIServer) Run() error {
+func (s *APIServer) Run() {
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer func() {
+		// extra handling here e.g.:
+		// Close database, redis, truncate message queues, etc.
+		cancel()
+	}()
+
 	router := http.NewServeMux()
 
 	v1 := http.NewServeMux()
@@ -43,9 +59,21 @@ func (s *APIServer) Run() error {
 		Handler: middlewareChain(v1),
 	}
 
-	log.Printf("Server has started %s", s.addr)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Could not listen on %s: %v\n", s.addr, err)
+		}
+	}()
+	log.Printf("Server Listening on %s\n", s.addr)
 
-	return server.ListenAndServe()
+	<-done
+	fmt.Println("")
+	log.Println("Gracefully shutting down server...")
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Could not shutdown server: %v\n", err)
+	}
+	log.Println("Server Exited Properly")
 }
 
 func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
