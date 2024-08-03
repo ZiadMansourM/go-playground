@@ -7,8 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 type APIServer struct {
@@ -40,13 +43,16 @@ func (s *APIServer) Run() {
 	v1.Handle("/api/v1/", http.StripPrefix("/api/v1", router))
 
 	// Health Check
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		WriteJson(w, http.StatusOK, map[string]string{"message": "API is healthy"})
 	})
 
 	// START Registering Services
 	tasksService := NewTasksService(s.store)
 	tasksService.RegisterRoutes(router)
+
+	usersService := NewUserService(s.store)
+	usersService.RegisterRoutes(router)
 	// END Registering Services
 
 	middlewareChain := MiddlewareChain(
@@ -85,11 +91,53 @@ func RequestLoggerMiddleware(next http.Handler) http.HandlerFunc {
 
 func RequireAuthMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
-		if token != "Bearer token" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		// Exclude user registration route from authentication
+		if r.URL.Path == "/api/v1/users/register" {
+			next.ServeHTTP(w, r)
 			return
 		}
+
+		// Read JWT from header
+		tokenString := r.Header.Get("Authorization")
+
+		// validate token
+		if !strings.HasPrefix(tokenString, "Bearer ") {
+			WriteJson(w, http.StatusUnauthorized, ErrorResponse{
+				Error: "Unauthorized",
+			})
+			return
+		}
+
+		// strip "Bearer " from token
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+
+		token, err := validateToken(tokenString)
+		if err != nil {
+			WriteJson(w, http.StatusUnauthorized, ErrorResponse{
+				Error: "Unauthorized: " + err.Error(),
+			})
+			return
+		}
+
+		if !token.Valid {
+			WriteJson(w, http.StatusUnauthorized, ErrorResponse{
+				Error: "Unauthorized: invalid token",
+			})
+			return
+		}
+
+		claims, _ := token.Claims.(jwt.MapClaims)
+		userID := claims["userID"].(string)
+
+		log.Printf("User ID: %s\n", userID)
+
+		// _, err = store.GetUserByID(userID)
+		// if err != nil {
+		// 	WriteJson(w, http.StatusUnauthorized, ErrorResponse{
+		// 		Error: "Unauthorized: invalid user. " + err.Error(),
+		// 	})
+		// 	return
+		// }
 
 		next.ServeHTTP(w, r)
 	}
